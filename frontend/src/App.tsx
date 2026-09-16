@@ -54,7 +54,7 @@ function App() {
       const data = await fetchJson(`${apiBase}/api/status`);
       setStatus(data);
     } catch (error) {
-      setStatus({ connected: false, account_name: null, membership_count: 0 });
+      setNotice('Telegram status is taking longer than expected. Live memberships are still available.');
     }
   };
 
@@ -62,7 +62,14 @@ function App() {
     try {
       const data = await fetchJson(`${apiBase}/api/memberships`);
       const saved = JSON.parse(localStorage.getItem(reviewStorageKey) || '{}') as Record<string, Partial<Membership>>;
-      setMemberships((data as Membership[]).map((item) => ({ ...item, ...saved[item.id] })));
+      const loadedMemberships = (data as Membership[]).map((item) => ({ ...item, ...saved[item.id] }));
+      setMemberships(loadedMemberships);
+      setStatus((current) => ({
+        ...current,
+        connected: true,
+        membership_count: loadedMemberships.length,
+      }));
+      setNotice(null);
       setHasLoadedMemberships(true);
     } catch (error) {
       setNotice('Telegram is still connecting. Click Refresh in a moment.');
@@ -227,7 +234,7 @@ function App() {
             {[
               { label: 'Connection status', value: status.connected ? 'Connected' : 'Disconnected', icon: Activity, tone: 'emerald' },
               { label: 'Account name', value: status.account_name ?? 'Unknown', icon: Users, tone: 'blue' },
-              { label: 'Total memberships', value: String(status.membership_count), icon: Gauge, tone: 'violet' },
+              { label: 'Total memberships', value: String(memberships.length || status.membership_count), icon: Gauge, tone: 'violet' },
               { label: 'Groups / Channels', value: `${memberships.filter(m => m.type === 'group').length} / ${memberships.filter(m => m.type === 'channel').length}`, icon: Bell, tone: 'amber' },
             ].map((card) => (
               <div key={card.label} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
