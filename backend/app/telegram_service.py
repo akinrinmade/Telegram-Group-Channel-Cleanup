@@ -138,17 +138,31 @@ class TelegramService:
         return memberships
 
     async def leave_membership(self, membership_id: str) -> tuple[bool, str | None]:
+        results = await self.leave_memberships([membership_id])
+        result = results[0]
+        return result["status"] == "success", result.get("error")
+
+    async def leave_memberships(self, membership_ids: list[str]) -> list[dict[str, str | None]]:
         async with self._operation_lock:
             try:
                 client = await self._connect()
-                dialog = await client.get_dialogs()
-                target = next((item for item in dialog if str(item.id) == str(membership_id)), None)
-                if target is None:
-                    return False, "Membership not found in account dialogs."
-                await client.delete_dialog(target.entity, revoke=True)
-                return True, None
-            except FloodWaitError as exc:
-                return False, f"Flood wait: {exc.seconds} seconds"
+                dialogs = await asyncio.wait_for(client.get_dialogs(limit=5000), timeout=90)
+                targets = {str(item.id): item for item in dialogs}
+                results: list[dict[str, str | None]] = []
+                for membership_id in membership_ids:
+                    target = targets.get(str(membership_id))
+                    if target is None:
+                        results.append({"id": str(membership_id), "status": "failed", "error": "Membership not found in account dialogs."})
+                        continue
+                    try:
+                        await client.delete_dialog(target.entity, revoke=True)
+                        results.append({"id": str(membership_id), "status": "success", "error": None})
+                    except FloodWaitError as exc:
+                        results.append({"id": str(membership_id), "status": "failed", "error": f"Flood wait: {exc.seconds} seconds"})
+                    except Exception as exc:
+                        results.append({"id": str(membership_id), "status": "failed", "error": str(exc)})
+                self._membership_cache = None
+                return results
             except Exception as exc:
                 self.client = None
-                return False, str(exc)
+                return [{"id": str(membership_id), "status": "failed", "error": str(exc)} for membership_id in membership_ids]

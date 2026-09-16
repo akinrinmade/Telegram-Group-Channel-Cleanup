@@ -86,19 +86,21 @@ async def cleanup(payload: CleanupRequest) -> dict[str, Any]:
 
     blocked = []
     results = []
+    eligible_ids = []
     for membership_id in membership_ids:
         if membership_id in protected_ids:
             blocked.append(membership_id)
             results.append({"id": membership_id, "name": membership_id, "status": "blocked", "error": "Protected membership cannot be left."})
-            continue
+        else:
+            eligible_ids.append(membership_id)
 
-        success, error = await telegram_service.leave_membership(membership_id)
-        results.append({
-            "id": membership_id,
-            "name": membership_id,
-            "status": "success" if success else "failed",
-            "error": error,
-        })
+    leave_results = await telegram_service.leave_memberships(eligible_ids)
+    results.extend({
+        "id": item["id"],
+        "name": item["id"],
+        "status": item["status"],
+        "error": item.get("error"),
+    } for item in leave_results)
 
     return {
         "success": True,
