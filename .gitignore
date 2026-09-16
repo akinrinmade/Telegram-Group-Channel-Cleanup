@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+!backend/.env.example
+*.session
+*.session-journal
+
+# Node / frontend
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.d.ts
+vite.config.js
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Local secrets
+telegram_session
+*.session
