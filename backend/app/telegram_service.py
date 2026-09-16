@@ -26,8 +26,17 @@ class TelegramService:
     def _load_config(self) -> tuple[int, str, str]:
         api_id = os.getenv("TELEGRAM_API_ID") or "0"
         api_hash = os.getenv("TELEGRAM_API_HASH") or ""
-        session_name = os.getenv("TELEGRAM_SESSION") or "telegram_cleanup"
+        session_name = self._normalize_session_path(os.getenv("TELEGRAM_SESSION") or "telegram_cleanup")
         return int(api_id), api_hash, session_name
+
+    @staticmethod
+    def _normalize_session_path(session_name: str) -> str:
+        lowered = session_name.lower()
+        rootfs_marker = "\\localstate\\rootfs\\"
+        if rootfs_marker in lowered:
+            suffix_start = lowered.index(rootfs_marker) + len(rootfs_marker)
+            return "/" + session_name[suffix_start:].replace("\\", "/")
+        return session_name
 
     def _session_candidates(self) -> list[str]:
         candidates = [self.session_name] if self.session_name else []
@@ -54,28 +63,45 @@ class TelegramService:
             raise RuntimeError("Telegram API credentials are not configured in the backend environment.")
 
         session_name = self._session_candidates()[0]
-        self.client = TelegramClient(session_name, self.api_id, self.api_hash)
+        self.client = TelegramClient(
+            session_name,
+            self.api_id,
+            self.api_hash,
+            connection_retries=1,
+            retry_delay=1,
+            timeout=15,
+        )
         return self.client
+
+    async def _connect(self) -> TelegramClient:
+        client = self.get_client()
+        try:
+            if not client.is_connected():
+                await asyncio.wait_for(client.connect(), timeout=20)
+            if not await asyncio.wait_for(client.is_user_authorized(), timeout=20):
+                raise RuntimeError("Telegram session is not authorized.")
+            return client
+        except Exception:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            self.client = None
+            raise
 
     async def ensure_connected(self) -> tuple[bool, str | None, int]:
         async with self._operation_lock:
-            client = self.get_client()
             try:
-                await client.connect()
+                client = await self._connect()
+                me = await asyncio.wait_for(client.get_me(), timeout=30)
+                memberships = await self._read_memberships(client)
             except Exception:
                 return False, None, 0
-
-            if not await client.is_user_authorized():
-                return False, None, 0
-
-            me = await client.get_me()
-            memberships = await self._read_memberships(client)
             return True, me.first_name or me.username or "Telegram account", len(memberships)
 
     async def get_memberships(self) -> list[dict[str, Any]]:
         async with self._operation_lock:
-            client = self.get_client()
-            await client.connect()
+            client = await self._connect()
             return await self._read_memberships(client)
 
     async def _read_memberships(self, client: TelegramClient) -> list[dict[str, Any]]:
@@ -113,9 +139,8 @@ class TelegramService:
 
     async def leave_membership(self, membership_id: str) -> tuple[bool, str | None]:
         async with self._operation_lock:
-            client = self.get_client()
-            await client.connect()
             try:
+                client = await self._connect()
                 dialog = await client.get_dialogs()
                 target = next((item for item in dialog if str(item.id) == str(membership_id)), None)
                 if target is None:
@@ -125,4 +150,5 @@ class TelegramService:
             except FloodWaitError as exc:
                 return False, f"Flood wait: {exc.seconds} seconds"
             except Exception as exc:
+                self.client = None
                 return False, str(exc)

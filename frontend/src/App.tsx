@@ -3,6 +3,7 @@ import { Activity, Bell, Gauge, Users, Search, Trash2, RefreshCcw } from 'lucide
 
 const apiBase = 'http://localhost:8000';
 const reviewStorageKey = 'telegram-cleanup-review-state';
+const membershipsStorageKey = 'telegram-cleanup-last-memberships';
 
 type Membership = {
   id: string;
@@ -29,6 +30,7 @@ function App() {
   const [activeView, setActiveView] = useState<'overview' | 'memberships' | 'review' | 'protected'>('overview');
   const [page, setPage] = useState(1);
   const [hasLoadedMemberships, setHasLoadedMemberships] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const pageSize = 50;
 
   const fetchJson = async (url: string) => {
@@ -59,11 +61,14 @@ function App() {
   };
 
   const loadMemberships = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
     try {
       const data = await fetchJson(`${apiBase}/api/memberships`);
       const saved = JSON.parse(localStorage.getItem(reviewStorageKey) || '{}') as Record<string, Partial<Membership>>;
       const loadedMemberships = (data as Membership[]).map((item) => ({ ...item, ...saved[item.id] }));
       setMemberships(loadedMemberships);
+      localStorage.setItem(membershipsStorageKey, JSON.stringify(loadedMemberships));
       setStatus((current) => ({
         ...current,
         connected: true,
@@ -74,6 +79,8 @@ function App() {
     } catch (error) {
       setNotice('Telegram is still connecting. Click Refresh in a moment.');
       setHasLoadedMemberships(true);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -84,6 +91,15 @@ function App() {
   }, [memberships, hasLoadedMemberships]);
 
   useEffect(() => {
+    const cachedMemberships = localStorage.getItem(membershipsStorageKey);
+    if (cachedMemberships) {
+      try {
+        setMemberships(JSON.parse(cachedMemberships) as Membership[]);
+        setHasLoadedMemberships(true);
+      } catch {
+        localStorage.removeItem(membershipsStorageKey);
+      }
+    }
     void loadStatus();
     void loadMemberships();
   }, []);
