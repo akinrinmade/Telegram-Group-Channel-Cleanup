@@ -99,6 +99,25 @@ class TelegramService:
                 return False, None, 0
             return True, me.first_name or me.username or "Telegram account", len(memberships)
 
+    async def reconnect(self) -> tuple[bool, str | None, int, str]:
+        async with self._operation_lock:
+            if self.client is not None:
+                try:
+                    await self.client.disconnect()
+                except Exception:
+                    pass
+                self.client = None
+            self._membership_cache = None
+            try:
+                client = await self._connect()
+                me = await asyncio.wait_for(client.get_me(), timeout=30)
+                memberships = await self._read_memberships(client)
+                return True, me.first_name or me.username or "Telegram account", len(memberships), "Telegram session connected."
+            except RuntimeError as exc:
+                return False, None, 0, str(exc)
+            except Exception as exc:
+                return False, None, 0, f"Telegram connection failed: {exc}"
+
     async def get_memberships(self) -> list[dict[str, Any]]:
         async with self._operation_lock:
             client = await self._connect()

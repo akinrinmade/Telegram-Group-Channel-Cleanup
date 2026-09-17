@@ -38,6 +38,8 @@ This may ask for your phone number, Telegram login code, and 2FA password in the
 
 Or double-click `Start Telegram Cleanup.ps1`. Open http://localhost:5173.
 
+The sidebar includes `Reconnect Telegram`. Use it when the connection indicator is stale or Telegram temporarily drops the network connection. It reconnects the existing local session and shows the backend diagnostic message. It does not send credentials through the browser.
+
 ## macOS and Linux
 
 Install Python 3.11 or 3.12, Node.js 18+, and npm. Create the backend environment with `python -m venv backend/.venv`, install `backend/requirements.txt`, run `npm install` inside `frontend`, configure `backend/.env`, and run the backend and frontend commands in the manual section below.
@@ -63,6 +65,8 @@ TELEGRAM_SESSION=telegram_cleanup
 `TELEGRAM_SESSION` can be a session name or a path without the `.session` suffix. The generated session file is local and ignored by Git.
 
 If an authenticated session already exists, the backend uses it without creating a browser login flow. If no session exists, run `scripts/login.ps1` once.
+
+The website cannot force a brand-new Telegram login securely because phone numbers, login codes, and 2FA passwords must stay out of the browser. Use `scripts/login.ps1` for first-time authentication, then use the website's reconnect button for normal recovery.
 
 ## Manual Development Commands
 

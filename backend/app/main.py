@@ -43,9 +43,21 @@ async def status() -> dict[str, Any]:
             "connected": connected,
             "account_name": account_name,
             "membership_count": count,
+            "message": "Telegram session connected." if connected else "Telegram session is not authorized.",
         }
-    except Exception:
-        return {"connected": False, "account_name": None, "membership_count": 0}
+    except Exception as exc:
+        return {"connected": False, "account_name": None, "membership_count": 0, "message": f"Telegram status check failed: {exc}"}
+
+
+@app.post("/api/status/reconnect", response_model=StatusResponse)
+async def reconnect() -> dict[str, Any]:
+    connected, account_name, count, message = await telegram_service.reconnect()
+    return {
+        "connected": connected,
+        "account_name": account_name,
+        "membership_count": count,
+        "message": message,
+    }
 
 
 @app.get("/api/memberships")

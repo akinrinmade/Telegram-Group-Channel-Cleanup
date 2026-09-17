@@ -24,6 +24,7 @@ class StatusResponse(BaseModel):
     connected: bool
     account_name: str | None = None
     membership_count: int = 0
+    message: str | None = None
 
 
 class HealthResponse(BaseModel):

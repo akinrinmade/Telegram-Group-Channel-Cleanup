@@ -31,6 +31,7 @@ function App() {
   const [page, setPage] = useState(1);
   const [hasLoadedMemberships, setHasLoadedMemberships] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const pageSize = 50;
 
   const fetchJson = async (url: string) => {
@@ -81,6 +82,22 @@ function App() {
       setHasLoadedMemberships(true);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const reconnectTelegram = async () => {
+    setIsReconnecting(true);
+    setNotice('Reconnecting to Telegram...');
+    try {
+      const response = await fetch(`${apiBase}/api/status/reconnect`, { method: 'POST' });
+      const data = await response.json() as { connected: boolean; account_name: string | null; membership_count: number; message?: string };
+      setStatus(data);
+      setNotice(data.message || (data.connected ? 'Telegram connected.' : 'Telegram is not connected.'));
+      if (data.connected) await loadMemberships();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Reconnect failed.');
+    } finally {
+      setIsReconnecting(false);
     }
   };
 
@@ -229,6 +246,9 @@ function App() {
             </div>
             <div className="text-slate-400">{status.account_name ?? 'Unknown account'}</div>
             <div className="text-slate-400">{status.membership_count} memberships</div>
+            <button onClick={() => void reconnectTelegram()} disabled={isReconnecting} className="w-full rounded-md border border-slate-700 px-3 py-2 text-left text-xs hover:bg-slate-800 disabled:opacity-50">
+              {isReconnecting ? 'Reconnecting...' : 'Reconnect Telegram'}
+            </button>
           </div>
         </aside>
 
@@ -287,7 +307,7 @@ function App() {
               </button>
             </div>
 
-            {notice && <div className="mb-4 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">{notice}</div>}
+            {(notice || status.message) && <div className="mb-4 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">{notice || status.message}</div>}
 
             <div className="mb-4 flex items-center gap-3">
               <div className="relative flex-1">
