@@ -70,6 +70,7 @@ class TelegramService:
             connection_retries=1,
             retry_delay=1,
             timeout=15,
+            auto_reconnect=False,
         )
         return self.client
 
@@ -120,6 +121,13 @@ class TelegramService:
 
     async def get_memberships(self) -> list[dict[str, Any]]:
         async with self._operation_lock:
+            client = await self._connect()
+            return await self._read_memberships(client)
+
+    async def refresh_memberships(self) -> list[dict[str, Any]]:
+        async with self._operation_lock:
+            self._membership_cache = None
+            self._membership_cache_at = 0.0
             client = await self._connect()
             return await self._read_memberships(client)
 

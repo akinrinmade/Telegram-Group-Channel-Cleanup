@@ -24,6 +24,8 @@ function App() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'group' | 'channel'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'keep' | 'remove' | 'review' | 'unclassified'>('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'name' | 'category' | 'status'>('name');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isCleaning, setIsCleaning] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -34,12 +36,12 @@ function App() {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const pageSize = 50;
 
-  const fetchJson = async (url: string) => {
+  const fetchJson = async (url: string, method: 'GET' | 'POST' = 'GET') => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 30000);
       try {
-        const response = await fetch(url, { signal: controller.signal });
+        const response = await fetch(url, { method, signal: controller.signal });
         if (!response.ok) throw new Error(`Request failed: ${response.status}`);
         return await response.json();
       } catch (error) {
@@ -80,6 +82,25 @@ function App() {
     } catch (error) {
       setNotice('Telegram is still connecting. Click Refresh in a moment.');
       setHasLoadedMemberships(true);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const refreshMemberships = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    setNotice('Refreshing memberships from Telegram...');
+    try {
+      const data = await fetchJson(`${apiBase}/api/memberships/refresh`, 'POST');
+      const saved = JSON.parse(localStorage.getItem(reviewStorageKey) || '{}') as Record<string, Partial<Membership>>;
+      const refreshed = (data as Membership[]).map((item) => ({ ...item, ...saved[item.id] }));
+      setMemberships(refreshed);
+      localStorage.setItem(membershipsStorageKey, JSON.stringify(refreshed));
+      setStatus((current) => ({ ...current, connected: true, membership_count: refreshed.length }));
+      setNotice(`Loaded ${refreshed.length} memberships from Telegram.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Telegram refresh failed.');
     } finally {
       setIsRefreshing(false);
     }
@@ -141,16 +162,18 @@ function App() {
         : activeView === 'review'
           ? membership.status === 'review' || membership.status === 'remove'
           : true;
-      return matchesSearch && matchesType && matchesStatus && matchesView;
-    });
-  }, [memberships, search, typeFilter, statusFilter, activeView]);
+      return matchesSearch && matchesType && matchesStatus && (categoryFilter === 'all' || membership.category === categoryFilter) && matchesView;
+    }).sort((left, right) => left[sortBy].localeCompare(right[sortBy]) || left.name.localeCompare(right.name));
+  }, [memberships, search, typeFilter, statusFilter, categoryFilter, sortBy, activeView]);
 
   const pageCount = Math.max(1, Math.ceil(filteredMemberships.length / pageSize));
   const visibleMemberships = filteredMemberships.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     setPage(1);
-  }, [search, typeFilter, statusFilter, activeView]);
+  }, [search, typeFilter, statusFilter, categoryFilter, sortBy, activeView]);
+
+  const categories = [...new Set(memberships.map((item) => item.category))].sort();
 
   const totalKeep = memberships.filter((item) => item.status === 'keep').length;
   const totalRemove = memberships.filter((item) => item.status === 'remove').length;
@@ -182,6 +205,19 @@ function App() {
   const toggleProtected = (id: string) => {
     setMemberships((current) => current.map((item) => item.id === id ? { ...item, protected: !item.protected } : item));
     setNotice(null);
+  };
+
+  const applyBulkStatus = (nextStatus: Membership['status']) => {
+    if (selectedIds.length === 0) {
+      setNotice('Select memberships first.');
+      return;
+    }
+    const selected = new Set(selectedIds);
+    setMemberships((current) => current.map((item) => selected.has(item.id) ? { ...item, status: nextStatus } : item));
+    if (nextStatus === 'keep') {
+      setSelectedIds([]);
+    }
+    setNotice(`${selectedIds.length} membership${selectedIds.length === 1 ? '' : 's'} marked ${nextStatus}.`);
   };
 
   const leaveSelected = async () => {
@@ -260,9 +296,10 @@ function App() {
             </div>
             <button
               className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-100 hover:bg-slate-700"
-              onClick={() => { void loadStatus(); void loadMemberships(); }}
+              disabled={isRefreshing}
+              onClick={() => { void loadStatus(); void refreshMemberships(); }}
             >
-              <RefreshCcw size={14} /> Refresh
+              <RefreshCcw size={14} /> {isRefreshing ? 'Refreshing...' : 'Refresh from Telegram'}
             </button>
           </div>
 
@@ -298,7 +335,6 @@ function App() {
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold">Memberships</h2>
               <button
-                onClick={() => setActiveView('memberships')}
                 className="inline-flex items-center gap-2 rounded-md bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={isCleaning || selectedIds.length === 0}
                 onClick={() => void leaveSelected()}
@@ -308,6 +344,13 @@ function App() {
             </div>
 
             {(notice || status.message) && <div className="mb-4 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">{notice || status.message}</div>}
+
+            <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-slate-800 pb-4">
+              <span className="mr-2 text-xs uppercase tracking-wide text-slate-500">{selectedIds.length} selected</span>
+              <button onClick={() => applyBulkStatus('keep')} disabled={selectedIds.length === 0} className="rounded border border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-800 disabled:opacity-40">Keep selected</button>
+              <button onClick={() => applyBulkStatus('remove')} disabled={selectedIds.length === 0} className="rounded border border-rose-700 px-3 py-1.5 text-xs hover:bg-rose-950 disabled:opacity-40">Remove selected</button>
+              <button onClick={() => { setSelectedIds([]); setNotice('Selection cleared.'); }} disabled={selectedIds.length === 0} className="rounded border border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-800 disabled:opacity-40">Clear selection</button>
+            </div>
 
             <div className="mb-4 flex items-center gap-3">
               <div className="relative flex-1">
@@ -330,6 +373,15 @@ function App() {
                 <option value="remove">Remove</option>
                 <option value="review">Review</option>
                 <option value="unclassified">Unclassified</option>
+              </select>
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100">
+                <option value="all">All categories</option>
+                {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as 'name' | 'category' | 'status')} className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100">
+                <option value="name">Sort: name</option>
+                <option value="category">Sort: category</option>
+                <option value="status">Sort: status</option>
               </select>
             </div>
 

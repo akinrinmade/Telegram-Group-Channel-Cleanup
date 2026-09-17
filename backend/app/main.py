@@ -71,7 +71,11 @@ async def get_memberships() -> list[dict[str, Any]]:
 
 @app.post("/api/memberships/refresh")
 async def refresh_memberships() -> list[dict[str, Any]]:
-    return await get_memberships()
+    try:
+        memberships = await telegram_service.refresh_memberships()
+        return classify_memberships(memberships)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Telegram refresh failed: {exc}") from exc
 
 
 @app.post("/api/memberships/classify")
